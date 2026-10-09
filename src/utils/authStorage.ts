@@ -100,7 +100,7 @@ export function registerUser(name: string, username: string, email: string, pass
   return newUser;
 }
 
-export function loginUser(emailOrUsername: string): User {
+export function loginUser(emailOrUsername: string, password?: string): User {
   const users = getAllUsers();
   const term = emailOrUsername.trim().toLowerCase().replace(/^@/, '');
   
@@ -110,6 +110,10 @@ export function loginUser(emailOrUsername: string): User {
 
   if (!found) {
     throw new Error('Utilisateur non trouvé. Vérifiez votre pseudo ou email.');
+  }
+
+  if (password && found.password && found.password !== password) {
+    throw new Error('Mot de passe incorrect.');
   }
 
   setCurrentUserId(found.id);

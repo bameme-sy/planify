@@ -3,6 +3,9 @@ import { User, TimeSlot, WeekTemplate, Friendship } from '../types';
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const TOKEN_KEY = 'planify_auth_token';
 
+let availabilityCache: boolean | null = null;
+let lastAvailabilityCheck = 0;
+
 export const apiClient = {
   getToken(): string | null {
     return localStorage.getItem(TOKEN_KEY);
@@ -17,10 +20,32 @@ export const apiClient = {
   },
 
   async isAvailable(): Promise<boolean> {
+    const now = Date.now();
+    if (availabilityCache !== null && now - lastAvailabilityCheck < 5000) {
+      return availabilityCache;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(1500) });
-      return res.ok;
+      if (!res.ok) {
+        availabilityCache = false;
+        lastAvailabilityCheck = now;
+        return false;
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        availabilityCache = false;
+        lastAvailabilityCheck = now;
+        return false;
+      }
+      const data = await res.json().catch(() => null);
+      const isOk = data?.status === 'ok';
+      availabilityCache = isOk;
+      lastAvailabilityCheck = now;
+      return isOk;
     } catch {
+      availabilityCache = false;
+      lastAvailabilityCheck = now;
       return false;
     }
   },
@@ -40,6 +65,11 @@ export const apiClient = {
       ...options,
       headers,
     });
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error(`API non disponible (${res.status})`);
+    }
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {

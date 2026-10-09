@@ -32,15 +32,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
           return;
         }
 
-        try {
-          const { user } = await apiClient.register(name, username, email, password);
-          registerUser(name, username, email, password);
-          onAuthSuccess(user);
-          return;
-        } catch (apiErr: any) {
-          if (apiErr.message && !apiErr.message.includes('Failed to fetch') && !apiErr.message.includes('NetworkError')) {
-            setErrorMsg(apiErr.message);
+        const isBackendUp = await apiClient.isAvailable();
+        if (isBackendUp) {
+          try {
+            const { user } = await apiClient.register(name, username, email, password);
+            registerUser(name, username, email, password);
+            onAuthSuccess(user);
             return;
+          } catch (apiErr: any) {
+            const msg = apiErr.message || '';
+            if (msg.includes('déjà') || msg.includes('requis') || msg.includes('invalide')) {
+              setErrorMsg(msg);
+              return;
+            }
           }
         }
 
@@ -52,19 +56,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
           return;
         }
 
-        try {
-          const { user } = await apiClient.login(email, password);
-          loginUser(email);
-          onAuthSuccess(user);
-          return;
-        } catch (apiErr: any) {
-          if (apiErr.message && !apiErr.message.includes('Failed to fetch') && !apiErr.message.includes('NetworkError')) {
-            setErrorMsg(apiErr.message);
+        const isBackendUp = await apiClient.isAvailable();
+        if (isBackendUp) {
+          try {
+            const { user } = await apiClient.login(email, password);
+            loginUser(email, password);
+            onAuthSuccess(user);
             return;
+          } catch (apiErr: any) {
+            const msg = apiErr.message || '';
+            if (msg.includes('incorrect') || msg.includes('non trouvé') || msg.includes('Identifiants')) {
+              setErrorMsg(msg);
+              return;
+            }
           }
         }
 
-        const logged = loginUser(email);
+        const logged = loginUser(email, password);
         onAuthSuccess(logged);
       }
     } catch (err: unknown) {
