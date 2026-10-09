@@ -459,8 +459,8 @@ export const slotsRepo = {
         slot.endTime,
         slot.notes || null,
         slot.location || null,
-        slot.status,
-        slot.createdAt,
+        slot.status || 'planned',
+        slot.createdAt || Date.now(),
       ]
     );
   },
@@ -519,7 +519,7 @@ export const templatesRepo = {
     await usersRepo.ensureExists(userId);
     await runQuery(
       'INSERT INTO templates (id, user_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)',
-      [tpl.id, userId, tpl.name, tpl.description || null, tpl.createdAt]
+      [tpl.id, userId, tpl.name, tpl.description || null, tpl.createdAt || Date.now()]
     );
 
     for (let i = 0; i < tpl.slots.length; i++) {
