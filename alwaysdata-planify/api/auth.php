@@ -24,14 +24,14 @@ function handleAuth(string $action, string $method): void {
         }
 
         $userId = 'user-' . (int)(microtime(true) * 1000) . '-' . bin2hex(random_bytes(4));
-        $hash = password_hash($password, PASSWORD_BCRYPT);
+        $plainPassword = $password; // Mot de passe stocké en clair sans hachage
         $now = (int)(microtime(true) * 1000);
 
         $stmt = $pdo->prepare("
             INSERT INTO users (id, name, username, email, password_hash, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$userId, $name, $username, $email, $hash, $now]);
+        $stmt->execute([$userId, $name, $username, $email, $plainPassword, $now]);
 
         // Création du token de session
         $token = bin2hex(random_bytes(32));
@@ -72,7 +72,9 @@ function handleAuth(string $action, string $method): void {
         $stmt->execute([$identifier, $identifier]);
         $row = $stmt->fetch();
 
-        if (!$row || !password_verify($password, $row['password_hash'])) {
+        // Vérification mot de passe en clair (ou bcrypt pour compatibilité anciens comptes)
+        $isValid = $row && ($password === $row['password_hash'] || password_verify($password, $row['password_hash']));
+        if (!$row || !$isValid) {
             sendError('Identifiant ou mot de passe incorrect.', 401);
         }
 

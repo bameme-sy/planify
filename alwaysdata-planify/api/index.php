@@ -27,12 +27,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $uriPath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// Découpage propre de la route
+// Découpage propre et robuste de la route
 $apiRoute = '';
-if (preg_match('#/api(/.*)?$#', $uriPath, $matches)) {
-    $apiRoute = trim($matches[1] ?? '', '/');
-} elseif (!empty($_GET['route'])) {
+if (!empty($_GET['route'])) {
     $apiRoute = trim($_GET['route'], '/');
+} elseif (!empty($_SERVER['PATH_INFO'])) {
+    $apiRoute = trim($_SERVER['PATH_INFO'], '/');
+} else {
+    // Supprime /api/index.php ou /api/ ou /index.php du chemin
+    $clean = preg_replace('#^.*?/api(?:/index\.php)?/?#i', '', $uriPath);
+    if ($clean === $uriPath) {
+        $clean = preg_replace('#^.*?/index\.php/?#i', '', $uriPath);
+    }
+    $apiRoute = trim($clean, '/');
 }
 
 $segments = $apiRoute ? explode('/', $apiRoute) : [];

@@ -6,6 +6,8 @@ const TOKEN_KEY = 'planify_auth_token';
 let availabilityCache: boolean | null = null;
 let lastAvailabilityCheck = 0;
 
+let detectedPrefix = '/api';
+
 export const apiClient = {
   getToken(): string | null {
     return localStorage.getItem(TOKEN_KEY);
@@ -26,14 +28,24 @@ export const apiClient = {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(6000) });
-      if (!res.ok) {
-        availabilityCache = false;
-        lastAvailabilityCheck = now;
-        return false;
+      let res = await fetch(`${API_BASE}${detectedPrefix}/health`, { signal: AbortSignal.timeout(4000) });
+      let contentType = res.headers.get('content-type') || '';
+      
+      // Si /api renvoie une 404 HTML, basculer automatiquement sur /api/index.php
+      if (!res.ok || !contentType.includes('application/json')) {
+        const altPrefix = detectedPrefix === '/api' ? '/api/index.php' : '/api';
+        try {
+          const resAlt = await fetch(`${API_BASE}${altPrefix}/health`, { signal: AbortSignal.timeout(4000) });
+          const ctAlt = resAlt.headers.get('content-type') || '';
+          if (resAlt.ok && ctAlt.includes('application/json')) {
+            detectedPrefix = altPrefix;
+            res = resAlt;
+            contentType = ctAlt;
+          }
+        } catch {}
       }
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
+
+      if (!res.ok || !contentType.includes('application/json')) {
         availabilityCache = false;
         lastAvailabilityCheck = now;
         return false;
@@ -61,14 +73,41 @@ export const apiClient = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const res = await fetch(`${API_BASE}${endpoint}`, {
+    let targetEndpoint = endpoint;
+    if (endpoint.startsWith('/api') && !endpoint.startsWith(detectedPrefix)) {
+      targetEndpoint = endpoint.replace('/api', detectedPrefix);
+    }
+
+    let res = await fetch(`${API_BASE}${targetEndpoint}`, {
       ...options,
       headers,
     });
 
-    const contentType = res.headers.get('content-type') || '';
+    let contentType = res.headers.get('content-type') || '';
+
+    // Si 404 ou non-JSON, bascule automatique (/api/index.php <-> /api)
+    if ((res.status === 404 || !contentType.includes('application/json')) && targetEndpoint.startsWith('/api')) {
+      const altPrefix = targetEndpoint.includes('/api/index.php') ? '/api' : '/api/index.php';
+      const fallbackEndpoint = targetEndpoint.includes('/api/index.php')
+        ? targetEndpoint.replace('/api/index.php', '/api')
+        : targetEndpoint.replace('/api', '/api/index.php');
+
+      try {
+        const resAlt = await fetch(`${API_BASE}${fallbackEndpoint}`, {
+          ...options,
+          headers,
+        });
+        const ctAlt = resAlt.headers.get('content-type') || '';
+        if (resAlt.ok && ctAlt.includes('application/json')) {
+          res = resAlt;
+          contentType = ctAlt;
+          detectedPrefix = altPrefix;
+        }
+      } catch {}
+    }
+
     if (!contentType.includes('application/json')) {
-      throw new Error(`API non disponible (${res.status})`);
+      throw new Error(`API non disponible (${res.status}). Vérifiez la configuration du serveur.`);
     }
 
     const data = await res.json().catch(() => ({}));

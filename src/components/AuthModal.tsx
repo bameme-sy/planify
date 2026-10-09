@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { registerUser, loginUser, saveOrUpdateLocalUser } from '../utils/authStorage';
+import { saveOrUpdateLocalUser } from '../utils/authStorage';
 import { UserCheck, LogIn, ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 import { apiClient } from '../api/client';
@@ -41,21 +41,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
           onAuthSuccess(user);
           return;
         } catch (apiErr: any) {
-          const msg = apiErr.message || '';
-          if (msg.includes('déjà') || msg.includes('requis') || msg.includes('invalide')) {
-            setErrorMsg(msg);
-            setIsLoading(false);
-            return;
-          }
-          try {
-            const created = registerUser(name, username, email, password);
-            onAuthSuccess(created);
-            return;
-          } catch (localErr: any) {
-            setErrorMsg(msg || localErr.message);
-            setIsLoading(false);
-            return;
-          }
+          setErrorMsg(apiErr.message || "Erreur lors de l'enregistrement dans la base de données.");
+          setIsLoading(false);
+          return;
         }
       } else {
         if (!email.trim()) {
@@ -70,21 +58,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
           onAuthSuccess(user);
           return;
         } catch (apiErr: any) {
-          const msg = apiErr.message || '';
-          if (msg.includes('incorrect') || msg.includes('non trouvé') || msg.includes('Identifiants')) {
-            setErrorMsg(msg);
-            setIsLoading(false);
-            return;
-          }
-          try {
-            const logged = loginUser(email, password);
-            onAuthSuccess(logged);
-            return;
-          } catch {
-            setErrorMsg(msg || "Impossible de se connecter. Vérifiez vos identifiants ou votre connexion.");
-            setIsLoading(false);
-            return;
-          }
+          setErrorMsg(apiErr.message || "Identifiant ou mot de passe incorrect.");
+          setIsLoading(false);
+          return;
         }
       }
     } catch (err: unknown) {

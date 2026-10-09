@@ -314,7 +314,7 @@ function ensureUserExists(string $userId, string $name = 'Utilisateur', ?string 
 
     $cleanUsername = 'user_' . substr(preg_replace('/[^a-zA-Z0-9]/', '', $userId), -6);
     $cleanEmail = $email ?: ($cleanUsername . '@planify.app');
-    $hash = password_hash('password', PASSWORD_BCRYPT);
+    $hash = 'password'; // Mot de passe en clair
     $now = (int)(microtime(true) * 1000);
 
     try {
