@@ -10,5 +10,11 @@ export default defineConfig({
     strictPort: false,
     // @ts-expect-error vite 5.4.12+ allowedHosts option
     allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
 });

@@ -38,6 +38,7 @@ import { AuthModal } from './components/AuthModal';
 import { FriendsModal } from './components/FriendsModal';
 import { FriendBanner } from './components/FriendBanner';
 import { ToastContainer, ToastMessage } from './components/Toast';
+import { apiClient } from './api/client';
 
 export function App() {
   // Initialize demo accounts on first run
@@ -80,22 +81,40 @@ export function App() {
 
   // Reload slots when active user changes (self or friend)
   useEffect(() => {
+    let isMounted = true;
     if (activeUserId) {
       setSlots(getUserSlots(activeUserId));
+      apiClient.getSlots(activeUserId).then((remote) => {
+        if (isMounted && Array.isArray(remote)) {
+          setSlots(remote);
+          if (!viewingFriend) {
+            saveUserSlots(activeUserId, remote);
+          }
+        }
+      }).catch(() => {});
     } else {
       setSlots([]);
     }
-  }, [activeUserId]);
+    return () => { isMounted = false; };
+  }, [activeUserId, viewingFriend]);
 
   const [templates, setTemplates] = useState<WeekTemplate[]>(() => loadTemplates(currentUser?.id));
 
   // Reload templates when currentUser changes
   useEffect(() => {
+    let isMounted = true;
     if (currentUser) {
       setTemplates(loadTemplates(currentUser.id));
+      apiClient.getTemplates().then((remote) => {
+        if (isMounted && Array.isArray(remote)) {
+          setTemplates(remote);
+          saveTemplates(remote, currentUser.id);
+        }
+      }).catch(() => {});
     } else {
       setTemplates([]);
     }
+    return () => { isMounted = false; };
   }, [currentUser?.id]);
 
   const [config, setConfig] = useState<PlanningConfig>(() => loadConfig());
@@ -155,6 +174,7 @@ export function App() {
     setSlots((prev) => {
       const resolved = typeof newSlots === 'function' ? newSlots(prev) : newSlots;
       saveUserSlots(currentUser.id, resolved);
+      apiClient.saveAllSlots(resolved).catch(() => {});
       return resolved;
     });
   };
@@ -188,6 +208,7 @@ export function App() {
   };
 
   const handleLogout = () => {
+    apiClient.logout().catch(() => {});
     logoutUser();
     setCurrentUser(null);
     setViewingFriend(null);
@@ -504,6 +525,7 @@ export function App() {
       userId: currentUser?.id,
     };
     updateTemplates((prev) => [...prev, templateWithUser]);
+    apiClient.createTemplate(templateWithUser).catch(() => {});
     addToast('success', `Modèle "${newTemplate.name}" créé`);
   };
 
@@ -511,11 +533,13 @@ export function App() {
     updateTemplates((prev) =>
       prev.map((t) => (t.id === updatedTemplate.id ? { ...updatedTemplate, userId: currentUser?.id } : t))
     );
+    apiClient.updateTemplate(updatedTemplate.id, updatedTemplate).catch(() => {});
     addToast('success', `Modèle "${updatedTemplate.name}" mis à jour`);
   };
 
   const handleDeleteTemplate = (templateId: string) => {
     updateTemplates((prev) => prev.filter((t) => t.id !== templateId));
+    apiClient.deleteTemplate(templateId).catch(() => {});
     addToast('info', 'Modèle supprimé');
   };
 

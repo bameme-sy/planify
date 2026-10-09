@@ -3,6 +3,8 @@ import { User } from '../types';
 import { registerUser, loginUser } from '../utils/authStorage';
 import { UserCheck, LogIn, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
+import { apiClient } from '../api/client';
+
 interface AuthModalProps {
   isOpen: boolean;
   onAuthSuccess: (user: User) => void;
@@ -19,7 +21,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -29,6 +31,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
           setErrorMsg('Veuillez renseigner tous les champs obligatoires.');
           return;
         }
+
+        try {
+          const { user } = await apiClient.register(name, username, email, password);
+          registerUser(name, username, email, password);
+          onAuthSuccess(user);
+          return;
+        } catch (apiErr: any) {
+          if (apiErr.message && !apiErr.message.includes('Failed to fetch') && !apiErr.message.includes('NetworkError')) {
+            setErrorMsg(apiErr.message);
+            return;
+          }
+        }
+
         const created = registerUser(name, username, email, password);
         onAuthSuccess(created);
       } else {
@@ -36,6 +51,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
           setErrorMsg('Veuillez renseigner votre email ou pseudo.');
           return;
         }
+
+        try {
+          const { user } = await apiClient.login(email, password);
+          loginUser(email);
+          onAuthSuccess(user);
+          return;
+        } catch (apiErr: any) {
+          if (apiErr.message && !apiErr.message.includes('Failed to fetch') && !apiErr.message.includes('NetworkError')) {
+            setErrorMsg(apiErr.message);
+            return;
+          }
+        }
+
         const logged = loginUser(email);
         onAuthSuccess(logged);
       }
