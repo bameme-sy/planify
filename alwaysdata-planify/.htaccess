@@ -1,0 +1,35 @@
+# ==========================================================
+# Configuration Apache / alwaysdata pour Planify
+# ==========================================================
+
+AddDefaultCharset UTF-8
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # 1. Redirection de toutes les requêtes /api vers api/index.php
+  RewriteCond %{REQUEST_URI} ^.*/api(/.*)?$ [NC]
+  RewriteRule ^.*api(/.*)?$ api/index.php [QSA,L]
+
+  # 2. Servir directement les fichiers ou dossiers physiques existants (assets, images, scripts)
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # 3. Redirection SPA (Single Page Application) vers index.html pour les autres pages
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Compression gzip pour accélérer le chargement
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+</IfModule>
+
+# Cache des fichiers statiques
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 1 month"
+  ExpiresByType application/javascript "access plus 1 month"
+  ExpiresByType image/svg+xml "access plus 1 month"
+</IfModule>
