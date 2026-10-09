@@ -130,36 +130,38 @@ export const apiClient = {
     return res.slots;
   },
 
-  async saveAllSlots(slots: TimeSlot[]): Promise<void> {
+  async saveAllSlots(slots: TimeSlot[], userId?: string): Promise<void> {
     await this.request('/api/slots', {
       method: 'PUT',
-      body: JSON.stringify({ slots }),
+      body: JSON.stringify({ slots, userId }),
     });
   },
 
-  async saveSlot(slot: TimeSlot): Promise<void> {
+  async saveSlot(slot: TimeSlot, userId?: string): Promise<void> {
     await this.request('/api/slots', {
       method: 'POST',
-      body: JSON.stringify(slot),
+      body: JSON.stringify({ ...slot, userId: userId || slot.userId }),
     });
   },
 
-  async deleteSlot(id: string): Promise<void> {
-    await this.request(`/api/slots/${encodeURIComponent(id)}`, {
+  async deleteSlot(id: string, userId?: string): Promise<void> {
+    const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    await this.request(`/api/slots/${encodeURIComponent(id)}${query}`, {
       method: 'DELETE',
     });
   },
 
   // Templates API
-  async getTemplates(): Promise<WeekTemplate[]> {
-    const res = await this.request<{ templates: WeekTemplate[] }>('/api/templates');
+  async getTemplates(userId?: string): Promise<WeekTemplate[]> {
+    const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    const res = await this.request<{ templates: WeekTemplate[] }>(`/api/templates${query}`);
     return res.templates;
   },
 
-  async createTemplate(template: WeekTemplate): Promise<WeekTemplate> {
+  async createTemplate(template: WeekTemplate, userId?: string): Promise<WeekTemplate> {
     const res = await this.request<{ template: WeekTemplate }>('/api/templates', {
       method: 'POST',
-      body: JSON.stringify(template),
+      body: JSON.stringify({ ...template, userId: userId || template.userId }),
     });
     return res.template;
   },

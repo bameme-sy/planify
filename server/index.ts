@@ -108,6 +108,22 @@ app.post('/api/auth/logout', requireAuth, async (req: AuthRequest, res) => {
   return res.json({ success: true });
 });
 
+async function resolveUserId(req: Request): Promise<string | null> {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    const user = await sessionsRepo.getUserByToken(token);
+    if (user) return user.id;
+  }
+  if (req.body?.userId && typeof req.body.userId === 'string') {
+    return req.body.userId;
+  }
+  if (req.query?.userId && typeof req.query.userId === 'string') {
+    return req.query.userId as string;
+  }
+  return null;
+}
+
 // --- USERS DIRECTORY ---
 
 app.get('/api/users', async (_req, res) => {
@@ -121,8 +137,8 @@ app.get('/api/users', async (_req, res) => {
 
 // --- SLOTS (CRÉNEAUX) ROUTES ---
 
-app.get('/api/slots', async (req: AuthRequest, res) => {
-  const targetUserId = (req.query.userId as string) || req.user?.id;
+app.get('/api/slots', async (req: Request, res) => {
+  const targetUserId = await resolveUserId(req);
   if (!targetUserId) {
     return res.status(400).json({ error: 'userId requis' });
   }
@@ -135,38 +151,53 @@ app.get('/api/slots', async (req: AuthRequest, res) => {
   }
 });
 
-app.put('/api/slots', requireAuth, async (req: AuthRequest, res) => {
+app.put('/api/slots', async (req: Request, res) => {
+  const userId = await resolveUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Utilisateur non identifié' });
+  }
+
   const { slots } = req.body;
   if (!Array.isArray(slots)) {
     return res.status(400).json({ error: 'Format invalide : slots doit être un tableau' });
   }
 
   try {
-    await slotsRepo.saveAllForUser(req.user!.id, slots);
+    await slotsRepo.saveAllForUser(userId, slots);
     return res.json({ success: true, count: slots.length });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erreur sauvegarde des créneaux' });
   }
 });
 
-app.post('/api/slots', requireAuth, async (req: AuthRequest, res) => {
+app.post('/api/slots', async (req: Request, res) => {
+  const userId = await resolveUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Utilisateur non identifié' });
+  }
+
   const slot = req.body;
   if (!slot.id || !slot.title || !slot.date || !slot.startTime || !slot.endTime) {
     return res.status(400).json({ error: 'Champs obligatoires manquants pour le créneau' });
   }
 
   try {
-    await slotsRepo.createOrUpdate(req.user!.id, slot);
+    await slotsRepo.createOrUpdate(userId, slot);
     return res.status(201).json({ success: true, slot });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erreur enregistrement créneau' });
   }
 });
 
-app.delete('/api/slots/:id', requireAuth, async (req: AuthRequest, res) => {
+app.delete('/api/slots/:id', async (req: Request, res) => {
+  const userId = await resolveUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Utilisateur non identifié' });
+  }
+
   const { id } = req.params;
   try {
-    await slotsRepo.delete(req.user!.id, id);
+    await slotsRepo.delete(userId, id);
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erreur suppression créneau' });
@@ -175,43 +206,63 @@ app.delete('/api/slots/:id', requireAuth, async (req: AuthRequest, res) => {
 
 // --- TEMPLATES ROUTES ---
 
-app.get('/api/templates', requireAuth, async (req: AuthRequest, res) => {
+app.get('/api/templates', async (req: Request, res) => {
+  const userId = await resolveUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Utilisateur non identifié' });
+  }
+
   try {
-    const templates = await templatesRepo.getByUserId(req.user!.id);
+    const templates = await templatesRepo.getByUserId(userId);
     return res.json({ templates });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erreur chargement modèles' });
   }
 });
 
-app.post('/api/templates', requireAuth, async (req: AuthRequest, res) => {
+app.post('/api/templates', async (req: Request, res) => {
+  const userId = await resolveUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Utilisateur non identifié' });
+  }
+
   const template = req.body;
   if (!template.id || !template.name) {
     return res.status(400).json({ error: 'Champs obligatoires manquants (id, name)' });
   }
 
   try {
-    await templatesRepo.create(req.user!.id, template);
+    await templatesRepo.create(userId, template);
     return res.status(201).json({ success: true, template });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erreur création modèle' });
   }
 });
 
-app.put('/api/templates/:id', requireAuth, async (req: AuthRequest, res) => {
+app.put('/api/templates/:id', async (req: Request, res) => {
+  const userId = await resolveUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Utilisateur non identifié' });
+  }
+
   const template = req.body;
   try {
-    await templatesRepo.update(req.user!.id, template);
+    await templatesRepo.update(userId, template);
     return res.json({ success: true, template });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erreur mise à jour modèle' });
   }
 });
 
-app.delete('/api/templates/:id', requireAuth, async (req: AuthRequest, res) => {
+app.delete('/api/templates/:id', async (req: Request, res) => {
+  const userId = await resolveUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Utilisateur non identifié' });
+  }
+
   const { id } = req.params;
   try {
-    await templatesRepo.delete(req.user!.id, id);
+    await templatesRepo.delete(userId, id);
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Erreur suppression modèle' });

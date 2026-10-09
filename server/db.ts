@@ -241,6 +241,36 @@ export async function initDb(): Promise<boolean> {
 }
 
 export const usersRepo = {
+  async ensureExists(id: string, name = 'Utilisateur', username?: string, email?: string, passwordPlain = 'password'): Promise<DbUser> {
+    await initDb();
+    const existing = await this.findById(id);
+    if (existing) return existing;
+
+    const cleanUsername = (username || `user_${id.slice(-6)}`).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const cleanEmail = (email || `${cleanUsername}@planify.app`).trim().toLowerCase();
+    const passwordHash = hashPassword(passwordPlain);
+    const now = Date.now();
+
+    try {
+      await runQuery(
+        `INSERT INTO users (id, name, username, email, password_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
+        [id, name.trim(), cleanUsername, cleanEmail, passwordHash, now]
+      );
+    } catch {
+      // Ignored if user already exists
+    }
+
+    return {
+      id,
+      name: name.trim(),
+      username: cleanUsername,
+      email: cleanEmail,
+      created_at: now,
+    };
+  },
+
   async create(name: string, username: string, email: string, passwordPlain: string): Promise<DbUser> {
     await initDb();
     const id = `user-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
@@ -381,6 +411,7 @@ export const slotsRepo = {
 
   async saveAllForUser(userId: string, slots: DbSlot[]): Promise<void> {
     await initDb();
+    await usersRepo.ensureExists(userId);
     await runQuery('DELETE FROM slots WHERE user_id = ?', [userId]);
     for (const s of slots) {
       await runQuery(
@@ -405,6 +436,7 @@ export const slotsRepo = {
 
   async createOrUpdate(userId: string, slot: DbSlot): Promise<void> {
     await initDb();
+    await usersRepo.ensureExists(userId);
     await runQuery(
       `INSERT INTO slots (id, user_id, title, category_id, date, start_time, end_time, notes, location, status, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -484,6 +516,7 @@ export const templatesRepo = {
 
   async create(userId: string, tpl: DbTemplate): Promise<void> {
     await initDb();
+    await usersRepo.ensureExists(userId);
     await runQuery(
       'INSERT INTO templates (id, user_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)',
       [tpl.id, userId, tpl.name, tpl.description || null, tpl.createdAt]

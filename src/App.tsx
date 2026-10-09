@@ -83,12 +83,19 @@ export function App() {
   useEffect(() => {
     let isMounted = true;
     if (activeUserId) {
-      setSlots(getUserSlots(activeUserId));
+      const localSlots = getUserSlots(activeUserId);
+      setSlots(localSlots);
       apiClient.getSlots(activeUserId).then((remote) => {
-        if (isMounted && Array.isArray(remote)) {
-          setSlots(remote);
-          if (!viewingFriend) {
-            saveUserSlots(activeUserId, remote);
+        if (!isMounted) return;
+        if (Array.isArray(remote)) {
+          if (remote.length > 0) {
+            setSlots(remote);
+            if (!viewingFriend) {
+              saveUserSlots(activeUserId, remote);
+            }
+          } else if (localSlots.length > 0 && !viewingFriend) {
+            // Cloud is empty but local has data: auto-sync local data to cloud database
+            apiClient.saveAllSlots(localSlots, activeUserId).catch(() => {});
           }
         }
       }).catch(() => {});
@@ -104,11 +111,20 @@ export function App() {
   useEffect(() => {
     let isMounted = true;
     if (currentUser) {
-      setTemplates(loadTemplates(currentUser.id));
-      apiClient.getTemplates().then((remote) => {
-        if (isMounted && Array.isArray(remote)) {
-          setTemplates(remote);
-          saveTemplates(remote, currentUser.id);
+      const localTpls = loadTemplates(currentUser.id);
+      setTemplates(localTpls);
+      apiClient.getTemplates(currentUser.id).then((remote) => {
+        if (!isMounted) return;
+        if (Array.isArray(remote)) {
+          if (remote.length > 0) {
+            setTemplates(remote);
+            saveTemplates(remote, currentUser.id);
+          } else if (localTpls.length > 0) {
+            // Auto-sync local templates to cloud database
+            for (const tpl of localTpls) {
+              apiClient.createTemplate(tpl, currentUser.id).catch(() => {});
+            }
+          }
         }
       }).catch(() => {});
     } else {
@@ -174,7 +190,7 @@ export function App() {
     setSlots((prev) => {
       const resolved = typeof newSlots === 'function' ? newSlots(prev) : newSlots;
       saveUserSlots(currentUser.id, resolved);
-      apiClient.saveAllSlots(resolved).catch(() => {});
+      apiClient.saveAllSlots(resolved, currentUser.id).catch(() => {});
       return resolved;
     });
   };
@@ -184,6 +200,11 @@ export function App() {
     setTemplates((prev) => {
       const resolved = typeof newTemplates === 'function' ? newTemplates(prev) : newTemplates;
       saveTemplates(resolved, currentUser?.id);
+      if (currentUser) {
+        for (const tpl of resolved) {
+          apiClient.createTemplate(tpl, currentUser.id).catch(() => {});
+        }
+      }
       return resolved;
     });
   };
