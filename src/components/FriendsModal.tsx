@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
-import { User } from '../types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { User, Friendship } from '../types';
 import { 
   getAllUsers, 
-  getFriendsForUser, 
-  getPendingRequestsReceived, 
-  getPendingRequestsSent,
-  sendFriendRequest, 
-  acceptFriendRequest, 
-  declineFriendRequest,
-  removeFriend
+  saveUsers,
+  getFriendships,
+  saveFriendships,
+  sendFriendRequest as localSendFriendRequest, 
+  acceptFriendRequest as localAcceptFriendRequest, 
+  declineFriendRequest as localDeclineFriendRequest,
+  removeFriend as localRemoveFriend
 } from '../utils/authStorage';
+import { apiClient } from '../api/client';
 import { 
   X, 
   Users, 
@@ -18,7 +19,9 @@ import {
   Search, 
   Calendar, 
   Clock, 
-  UserX 
+  UserX,
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 
 interface FriendsModalProps {
@@ -37,52 +40,202 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'all'>('friends');
   const [searchQuery, setSearchQuery] = useState('');
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
-  // Force re-render on state change
-  const [, setTick] = useState(0);
-  const refresh = () => setTick((t) => t + 1);
+  // Initialisation avec le cache local pour affichage instantané
+  const [users, setUsers] = useState<User[]>(() => getAllUsers());
+  const [friendships, setFriendships] = useState<Friendship[]>(() => getFriendships());
+
+  // Récupération des données depuis le serveur MySQL / PHP
+  const fetchSocialData = useCallback(async () => {
+    if (!currentUser) return;
+    setIsLoading(true);
+
+    try {
+      const isCloud = await apiClient.isAvailable();
+      if (!isCloud) {
+        setIsLoading(false);
+        return;
+      }
+
+      const [usersRes, friendshipsRes] = await Promise.allSettled([
+        apiClient.getAllUsers(),
+        apiClient.getFriendships(currentUser.id)
+      ]);
+
+      if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value)) {
+        setUsers(usersRes.value);
+        saveUsers(usersRes.value);
+      }
+
+      if (friendshipsRes.status === 'fulfilled' && Array.isArray(friendshipsRes.value)) {
+        setFriendships(friendshipsRes.value);
+        saveFriendships(friendshipsRes.value);
+      }
+    } catch (err) {
+      console.warn('Erreur chargement réseau social :', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentUser]);
+
+  // Synchronisation à l'ouverture de la modale
+  useEffect(() => {
+    if (isOpen) {
+      fetchSocialData();
+    }
+  }, [isOpen, fetchSocialData]);
 
   if (!isOpen) return null;
 
-  const friends = getFriendsForUser(currentUser.id);
-  const pendingReceived = getPendingRequestsReceived(currentUser.id);
-  const pendingSent = getPendingRequestsSent(currentUser.id);
-  const allUsers = getAllUsers().filter((u) => u.id !== currentUser.id);
+  // Listes dérivées de l'état actuel
+  const allUsers = users.filter((u) => u.id !== currentUser.id);
+
+  const acceptedFriendships = friendships.filter(
+    (f) => f.status === 'accepted' && (f.senderId === currentUser.id || f.receiverId === currentUser.id)
+  );
+  const friendIds = acceptedFriendships.map((f) => (f.senderId === currentUser.id ? f.receiverId : f.senderId));
+  const friends = users.filter((u) => friendIds.includes(u.id));
+
+  const pendingReceived = friendships
+    .filter((f) => f.receiverId === currentUser.id && f.status === 'pending')
+    .map((request) => {
+      const sender = users.find((u) => u.id === request.senderId) || {
+        id: request.senderId,
+        name: 'Utilisateur',
+        username: 'inconnu',
+        email: '',
+        createdAt: 0,
+      };
+      return { request, sender };
+    });
+
+  const pendingSent = friendships
+    .filter((f) => f.senderId === currentUser.id && f.status === 'pending')
+    .map((request) => {
+      const receiver = users.find((u) => u.id === request.receiverId) || {
+        id: request.receiverId,
+        name: 'Utilisateur',
+        username: 'inconnu',
+        email: '',
+        createdAt: 0,
+      };
+      return { request, receiver };
+    });
 
   const filteredAllUsers = allUsers.filter((u) => {
     const q = searchQuery.toLowerCase();
     return u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
   });
 
-  const handleSendRequest = (receiverId: string) => {
+  const notifyChange = () => {
+    window.dispatchEvent(new CustomEvent('planify_social_updated'));
+  };
+
+  // 1. Envoyer une demande d'ami
+  const handleSendRequest = async (receiverId: string) => {
+    setActionLoadingId(receiverId);
     try {
-      sendFriendRequest(currentUser.id, receiverId);
+      try {
+        await apiClient.sendFriendRequest(receiverId, currentUser.id);
+      } catch (e) {
+        console.warn('API sendFriendRequest fallback:', e);
+      }
+      try {
+        localSendFriendRequest(currentUser.id, receiverId);
+      } catch {}
+
       setActionFeedback('Demande envoyée !');
       setTimeout(() => setActionFeedback(null), 3000);
-      refresh();
+      await fetchSocialData();
+      notifyChange();
     } catch (err: unknown) {
       if (err instanceof Error) {
         setActionFeedback(err.message);
       }
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
-  const handleAcceptRequest = (requestId: string) => {
-    acceptFriendRequest(requestId);
-    setActionFeedback('Demande acceptée !');
-    setTimeout(() => setActionFeedback(null), 3000);
-    refresh();
+  // 2. Accepter une demande d'ami
+  const handleAcceptRequest = async (requestId: string) => {
+    setActionLoadingId(requestId);
+    try {
+      try {
+        await apiClient.updateFriendshipStatus(requestId, 'accepted');
+      } catch (e) {
+        console.warn('API updateFriendshipStatus fallback:', e);
+      }
+      try {
+        localAcceptFriendRequest(requestId);
+      } catch {}
+
+      setActionFeedback('Demande acceptée !');
+      setTimeout(() => setActionFeedback(null), 3000);
+      await fetchSocialData();
+      notifyChange();
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setActionFeedback(err.message);
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
   };
 
-  const handleDeclineRequest = (requestId: string) => {
-    declineFriendRequest(requestId);
-    refresh();
+  // 3. Refuser ou annuler une demande d'ami
+  const handleDeclineRequest = async (requestId: string) => {
+    setActionLoadingId(requestId);
+    try {
+      try {
+        await apiClient.deleteFriendship(requestId, currentUser.id);
+      } catch {
+        try {
+          await apiClient.updateFriendshipStatus(requestId, 'declined');
+        } catch (e) {
+          console.warn('API decline fallback:', e);
+        }
+      }
+      try {
+        localDeclineFriendRequest(requestId);
+      } catch {}
+
+      await fetchSocialData();
+      notifyChange();
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setActionFeedback(err.message);
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
   };
 
-  const handleRemoveFriend = (friendId: string) => {
-    if (confirm('Retirer ce contact de votre réseau ?')) {
-      removeFriend(currentUser.id, friendId);
-      refresh();
+  // 4. Retirer un ami
+  const handleRemoveFriend = async (friendId: string) => {
+    if (!confirm('Retirer ce contact de votre réseau ?')) return;
+
+    setActionLoadingId(friendId);
+    try {
+      try {
+        await apiClient.removeFriend(friendId, currentUser.id);
+      } catch (e) {
+        console.warn('API removeFriend fallback:', e);
+      }
+      try {
+        localRemoveFriend(currentUser.id, friendId);
+      } catch {}
+
+      await fetchSocialData();
+      notifyChange();
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setActionFeedback(err.message);
+      }
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -106,12 +259,22 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1 rounded-[4px] text-[#8e8e93] hover:text-[#1d1d1f] dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => fetchSocialData()}
+              title="Rafraîchir"
+              disabled={isLoading}
+              className="p-1 rounded-[4px] text-[#8e8e93] hover:text-[#1d1d1f] dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1 rounded-[4px] text-[#8e8e93] hover:text-[#1d1d1f] dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Apple Segmented Tabs & Search */}
@@ -244,10 +407,15 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
 
                       <button
                         onClick={() => handleRemoveFriend(friend.id)}
+                        disabled={actionLoadingId === friend.id}
                         title="Retirer de mes contacts"
-                        className="p-1.5 rounded-[4px] text-[#8e8e93] hover:text-[#ff3b30] hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                        className="p-1.5 rounded-[4px] text-[#8e8e93] hover:text-[#ff3b30] hover:bg-black/5 dark:hover:bg-white/5 transition-colors disabled:opacity-50"
                       >
-                        <UserX className="h-3.5 w-3.5" />
+                        {actionLoadingId === friend.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <UserX className="h-3.5 w-3.5" />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -292,14 +460,20 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => handleAcceptRequest(request.id)}
-                          className="flex items-center gap-1 px-2.5 py-1 bg-[#34c759] hover:bg-[#2db84e] text-white rounded-[6px] text-[11px] font-medium transition-colors"
+                          disabled={actionLoadingId === request.id}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-[#34c759] hover:bg-[#2db84e] text-white rounded-[6px] text-[11px] font-medium transition-colors disabled:opacity-50"
                         >
-                          <Check className="h-3 w-3" />
+                          {actionLoadingId === request.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Check className="h-3 w-3" />
+                          )}
                           <span>Accepter</span>
                         </button>
                         <button
                           onClick={() => handleDeclineRequest(request.id)}
-                          className="px-2 py-1 text-[11px] text-[#8e8e93] hover:text-[#ff3b30] rounded-[6px] transition-colors"
+                          disabled={actionLoadingId === request.id}
+                          className="px-2 py-1 text-[11px] text-[#8e8e93] hover:text-[#ff3b30] rounded-[6px] transition-colors disabled:opacity-50"
                         >
                           Refuser
                         </button>
@@ -338,7 +512,8 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                         </span>
                         <button
                           onClick={() => handleDeclineRequest(request.id)}
-                          className="text-[10px] text-[#8e8e93] hover:text-[#ff3b30] underline"
+                          disabled={actionLoadingId === request.id}
+                          className="text-[10px] text-[#8e8e93] hover:text-[#ff3b30] underline disabled:opacity-50"
                         >
                           Annuler
                         </button>
@@ -355,7 +530,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
             <div className="space-y-1.5">
               {filteredAllUsers.length === 0 ? (
                 <p className="text-[12px] text-[#8e8e93] text-center py-4">
-                  Aucun membre trouvé.
+                  {isLoading ? 'Chargement des membres...' : 'Aucun membre trouvé.'}
                 </p>
               ) : (
                 filteredAllUsers.map((user) => {
@@ -411,9 +586,14 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                         ) : (
                           <button
                             onClick={() => handleSendRequest(user.id)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-[#007aff] hover:bg-[#0069d9] text-white text-[11px] font-medium transition-colors"
+                            disabled={actionLoadingId === user.id}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-[#007aff] hover:bg-[#0069d9] text-white text-[11px] font-medium transition-colors disabled:opacity-50"
                           >
-                            <UserPlus className="h-3 w-3" />
+                            {actionLoadingId === user.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <UserPlus className="h-3 w-3" />
+                            )}
                             <span>Inviter</span>
                           </button>
                         )}

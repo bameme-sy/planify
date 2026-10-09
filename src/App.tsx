@@ -26,7 +26,9 @@ import {
   saveUserSlots,
   getFriendsForUser,
   getPendingRequestsReceived,
-  saveOrUpdateLocalUser
+  saveOrUpdateLocalUser,
+  saveUsers,
+  saveFriendships
 } from './utils/authStorage';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
@@ -272,16 +274,56 @@ export function App() {
     });
   };
 
+  const [socialTick, setSocialTick] = useState(0);
+
+  // Sync social data (friends & requests) from MySQL
+  const syncSocialData = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const isCloud = await apiClient.isAvailable();
+      if (!isCloud) return;
+
+      const [usersRes, friendshipsRes] = await Promise.allSettled([
+        apiClient.getAllUsers(),
+        apiClient.getFriendships(currentUser.id),
+      ]);
+
+      if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value)) {
+        saveUsers(usersRes.value);
+      }
+      if (friendshipsRes.status === 'fulfilled' && Array.isArray(friendshipsRes.value)) {
+        saveFriendships(friendshipsRes.value);
+      }
+      setSocialTick((t) => t + 1);
+    } catch {}
+  }, [currentUser]);
+
+  useEffect(() => {
+    const handleSocialUpdate = () => {
+      setSocialTick((t) => t + 1);
+    };
+    window.addEventListener('planify_social_updated', handleSocialUpdate);
+    return () => window.removeEventListener('planify_social_updated', handleSocialUpdate);
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      syncSocialData();
+      const interval = setInterval(syncSocialData, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [currentUser, syncSocialData]);
+
   // Friends & social data
   const friends = useMemo(() => {
     if (!currentUser) return [];
     return getFriendsForUser(currentUser.id);
-  }, [currentUser, isFriendsModalOpen]);
+  }, [currentUser, isFriendsModalOpen, socialTick]);
 
   const pendingRequestsCount = useMemo(() => {
     if (!currentUser) return 0;
     return getPendingRequestsReceived(currentUser.id).length;
-  }, [currentUser, isFriendsModalOpen]);
+  }, [currentUser, isFriendsModalOpen, socialTick]);
 
   // Auth Handlers
   const handleAuthSuccess = async (user: User) => {
@@ -290,6 +332,7 @@ export function App() {
     const local = getUserSlots(user.id);
     setSlots(local);
     addToast('success', `Bienvenue, ${user.name} !`);
+    syncSocialData();
 
     try {
       const remote = await apiClient.getSlots(user.id);

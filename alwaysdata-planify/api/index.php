@@ -36,13 +36,14 @@ if (!empty($_GET['route'])) {
 } else {
     // Supprime /api/index.php ou /api/ ou /index.php du chemin
     $clean = preg_replace('#^.*?/api(?:/index\.php)?/?#i', '', $uriPath);
-    if ($clean === $uriPath) {
-        $clean = preg_replace('#^.*?/index\.php/?#i', '', $uriPath);
-    }
+    $clean = preg_replace('#^/index\.php/?#i', '', $clean);
     $apiRoute = trim($clean, '/');
 }
 
-$segments = $apiRoute ? explode('/', $apiRoute) : [];
+$rawSegments = $apiRoute ? explode('/', $apiRoute) : [];
+$segments = array_values(array_filter($rawSegments, function($s) {
+    return $s !== '' && strtolower($s) !== 'index.php';
+}));
 $resource = $segments[0] ?? '';
 $subId = $segments[1] ?? null;
 

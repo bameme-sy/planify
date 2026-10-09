@@ -253,10 +253,13 @@ function getJsonInput(): array {
  * Récupère le token Bearer depuis l'entête Authorization
  */
 function getBearerToken(): ?string {
-    $headers = getallheaders();
-    $auth = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+    $headers = function_exists('getallheaders') ? getallheaders() : [];
+    $auth = $headers['Authorization'] ?? $headers['authorization'] ?? $headers['X-Auth-Token'] ?? $headers['x-auth-token'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
     if (preg_match('/Bearer\s+(\S+)/i', $auth, $matches)) {
         return $matches[1];
+    }
+    if (!empty($_GET['token']) && is_string($_GET['token'])) {
+        return trim($_GET['token']);
     }
     return null;
 }
@@ -281,6 +284,7 @@ function getAuthenticatedUser(): ?array {
     $user = $stmt->fetch();
     if ($user) {
         $user['created_at'] = (int)$user['created_at'];
+        $user['createdAt'] = (int)$user['created_at'];
         return $user;
     }
     return null;
@@ -290,15 +294,15 @@ function getAuthenticatedUser(): ?array {
  * Résout l'ID de l'utilisateur à partir du token, du body ou du query param
  */
 function resolveUserId(array $input = []): ?string {
-    $authUser = getAuthenticatedUser();
-    if ($authUser) {
-        return $authUser['id'];
+    if (!empty($_GET['userId']) && is_string($_GET['userId'])) {
+        return trim($_GET['userId']);
     }
     if (!empty($input['userId']) && is_string($input['userId'])) {
         return trim($input['userId']);
     }
-    if (!empty($_GET['userId']) && is_string($_GET['userId'])) {
-        return trim($_GET['userId']);
+    $authUser = getAuthenticatedUser();
+    if ($authUser) {
+        return $authUser['id'];
     }
     return null;
 }

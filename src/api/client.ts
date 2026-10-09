@@ -220,15 +220,16 @@ export const apiClient = {
   },
 
   // Friendships API
-  async getFriendships(): Promise<Friendship[]> {
-    const res = await this.request<{ friendships: Friendship[] }>('/api/friendships');
+  async getFriendships(userId?: string): Promise<Friendship[]> {
+    const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    const res = await this.request<{ friendships: Friendship[] }>(`/api/friendships${query}`);
     return res.friendships;
   },
 
-  async sendFriendRequest(receiverId: string): Promise<Friendship> {
+  async sendFriendRequest(receiverId: string, senderId?: string): Promise<Friendship> {
     const res = await this.request<{ friendship: Friendship }>('/api/friendships', {
       method: 'POST',
-      body: JSON.stringify({ receiverId }),
+      body: JSON.stringify({ receiverId, senderId }),
     });
     return res.friendship;
   },
@@ -237,6 +238,23 @@ export const apiClient = {
     await this.request(`/api/friendships/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
+    });
+  },
+
+  async deleteFriendship(id: string, userId?: string): Promise<void> {
+    const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    await this.request(`/api/friendships/${encodeURIComponent(id)}${query}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async removeFriend(friendId: string, userId?: string): Promise<void> {
+    const query = userId
+      ? `?friendId=${encodeURIComponent(friendId)}&userId=${encodeURIComponent(userId)}`
+      : `?friendId=${encodeURIComponent(friendId)}`;
+    await this.request(`/api/friendships${query}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ friendId, userId }),
     });
   },
 };

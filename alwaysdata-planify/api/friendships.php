@@ -6,9 +6,9 @@ function handleFriendships(string $method, ?string $subId = null): void {
     $user = getAuthenticatedUser();
     $input = getJsonInput();
 
-    $userId = $user ? $user['id'] : resolveUserId($input);
+    $userId = $user ? $user['id'] : (!empty($_GET['userId']) ? trim($_GET['userId']) : (!empty($input['senderId']) ? trim($input['senderId']) : resolveUserId($input)));
     if (!$userId) {
-        sendError('Accès non autorisé : token manquant.', 401);
+        sendError('Accès non autorisé : utilisateur non identifié ou token manquant.', 401);
     }
 
     // 1. GET /api/friendships
@@ -39,10 +39,12 @@ function handleFriendships(string $method, ?string $subId = null): void {
     // 2. POST /api/friendships (Envoyer une demande d'ami)
     if ($method === 'POST') {
         $receiverId = trim($input['receiverId'] ?? '');
+        $senderId = !empty($input['senderId']) ? trim($input['senderId']) : $userId;
+
         if (!$receiverId) {
             sendError('receiverId requis.', 400);
         }
-        if ($receiverId === $userId) {
+        if ($receiverId === $senderId) {
             sendError('Vous ne pouvez pas vous ajouter vous-même en ami.', 400);
         }
 
@@ -52,10 +54,29 @@ function handleFriendships(string $method, ?string $subId = null): void {
             FROM friendships
             WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
         ");
-        $check->execute([$userId, $receiverId, $receiverId, $userId]);
+        $check->execute([$senderId, $receiverId, $receiverId, $senderId]);
         $existing = $check->fetch();
 
         if ($existing) {
+            if ($existing['status'] === 'declined') {
+                $now = (int)(microtime(true) * 1000);
+                $upd = $pdo->prepare("
+                    UPDATE friendships
+                    SET sender_id = ?, receiver_id = ?, status = 'pending', updated_at = ?
+                    WHERE id = ?
+                ");
+                $upd->execute([$senderId, $receiverId, $now, $existing['id']]);
+
+                sendJson(['friendship' => [
+                    'id' => $existing['id'],
+                    'senderId' => $senderId,
+                    'receiverId' => $receiverId,
+                    'status' => 'pending',
+                    'createdAt' => (int)$existing['created_at'],
+                    'updatedAt' => $now,
+                ]]);
+            }
+
             sendJson(['friendship' => [
                 'id' => $existing['id'],
                 'senderId' => $existing['sender_id'],
@@ -69,18 +90,18 @@ function handleFriendships(string $method, ?string $subId = null): void {
         $now = (int)(microtime(true) * 1000);
         $id = 'friendship-' . $now . '-' . bin2hex(random_bytes(3));
 
-        ensureUserExists($userId);
+        ensureUserExists($senderId);
         ensureUserExists($receiverId);
 
         $stmt = $pdo->prepare("
             INSERT INTO friendships (id, sender_id, receiver_id, status, created_at, updated_at)
             VALUES (?, ?, ?, 'pending', ?, ?)
         ");
-        $stmt->execute([$id, $userId, $receiverId, $now, $now]);
+        $stmt->execute([$id, $senderId, $receiverId, $now, $now]);
 
         sendJson(['friendship' => [
             'id' => $id,
-            'senderId' => $userId,
+            'senderId' => $senderId,
             'receiverId' => $receiverId,
             'status' => 'pending',
             'createdAt' => $now,
@@ -104,6 +125,30 @@ function handleFriendships(string $method, ?string $subId = null): void {
         $stmt->execute([$status, $now, $subId, $userId, $userId]);
 
         sendJson(['success' => true]);
+    }
+
+    // 4. DELETE /api/friendships/:id ou ?friendId=... (Supprimer / Retirer un ami)
+    if ($method === 'DELETE') {
+        $targetId = $subId ?: ($input['id'] ?? ($_GET['id'] ?? null));
+        $friendId = $input['friendId'] ?? ($_GET['friendId'] ?? null);
+
+        if ($targetId) {
+            $stmt = $pdo->prepare("
+                DELETE FROM friendships
+                WHERE id = ? AND (sender_id = ? OR receiver_id = ?)
+            ");
+            $stmt->execute([$targetId, $userId, $userId]);
+            sendJson(['success' => true]);
+        } elseif ($friendId) {
+            $stmt = $pdo->prepare("
+                DELETE FROM friendships
+                WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+            ");
+            $stmt->execute([$userId, $friendId, $friendId, $userId]);
+            sendJson(['success' => true]);
+        } else {
+            sendError('ID de relation ou friendId requis pour la suppression.', 400);
+        }
     }
 
     sendError('Action friendships non supportée.', 405);

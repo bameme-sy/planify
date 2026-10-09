@@ -49,6 +49,7 @@ function handleAuth(string $action, string $method): void {
                 'name' => $name,
                 'username' => $username,
                 'email' => $email,
+                'createdAt' => $now,
                 'created_at' => $now
             ],
             'token' => $token
@@ -94,6 +95,7 @@ function handleAuth(string $action, string $method): void {
                 'name' => $row['name'],
                 'username' => $row['username'],
                 'email' => $row['email'],
+                'createdAt' => (int)$row['created_at'],
                 'created_at' => (int)$row['created_at']
             ],
             'token' => $token
