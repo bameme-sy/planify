@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { registerUser, loginUser, saveOrUpdateLocalUser } from '../utils/authStorage';
-import { UserCheck, LogIn, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { UserCheck, LogIn, ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 import { apiClient } from '../api/client';
 
@@ -18,62 +18,74 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setIsLoading(true);
 
     try {
       if (isRegisterMode) {
         if (!name.trim() || !username.trim() || !email.trim()) {
           setErrorMsg('Veuillez renseigner tous les champs obligatoires.');
+          setIsLoading(false);
           return;
         }
 
-        const isBackendUp = await apiClient.isAvailable();
-        if (isBackendUp) {
-          try {
-            const { user } = await apiClient.register(name, username, email, password);
-            saveOrUpdateLocalUser(user);
-            onAuthSuccess(user);
+        try {
+          const { user } = await apiClient.register(name, username, email, password);
+          saveOrUpdateLocalUser(user);
+          onAuthSuccess(user);
+          return;
+        } catch (apiErr: any) {
+          const msg = apiErr.message || '';
+          if (msg.includes('déjà') || msg.includes('requis') || msg.includes('invalide')) {
+            setErrorMsg(msg);
+            setIsLoading(false);
             return;
-          } catch (apiErr: any) {
-            const msg = apiErr.message || '';
-            if (msg.includes('déjà') || msg.includes('requis') || msg.includes('invalide')) {
-              setErrorMsg(msg);
-              return;
-            }
+          }
+          try {
+            const created = registerUser(name, username, email, password);
+            onAuthSuccess(created);
+            return;
+          } catch (localErr: any) {
+            setErrorMsg(msg || localErr.message);
+            setIsLoading(false);
+            return;
           }
         }
-
-        const created = registerUser(name, username, email, password);
-        onAuthSuccess(created);
       } else {
         if (!email.trim()) {
           setErrorMsg('Veuillez renseigner votre email ou pseudo.');
+          setIsLoading(false);
           return;
         }
 
-        const isBackendUp = await apiClient.isAvailable();
-        if (isBackendUp) {
-          try {
-            const { user } = await apiClient.login(email, password);
-            saveOrUpdateLocalUser(user);
-            onAuthSuccess(user);
+        try {
+          const { user } = await apiClient.login(email, password);
+          saveOrUpdateLocalUser(user);
+          onAuthSuccess(user);
+          return;
+        } catch (apiErr: any) {
+          const msg = apiErr.message || '';
+          if (msg.includes('incorrect') || msg.includes('non trouvé') || msg.includes('Identifiants')) {
+            setErrorMsg(msg);
+            setIsLoading(false);
             return;
-          } catch (apiErr: any) {
-            const msg = apiErr.message || '';
-            if (msg.includes('incorrect') || msg.includes('non trouvé') || msg.includes('Identifiants')) {
-              setErrorMsg(msg);
-              return;
-            }
+          }
+          try {
+            const logged = loginUser(email, password);
+            onAuthSuccess(logged);
+            return;
+          } catch {
+            setErrorMsg(msg || "Impossible de se connecter. Vérifiez vos identifiants ou votre connexion.");
+            setIsLoading(false);
+            return;
           }
         }
-
-        const logged = loginUser(email, password);
-        onAuthSuccess(logged);
       }
     } catch (err: unknown) {
       if (err instanceof Error) {
@@ -81,6 +93,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
       } else {
         setErrorMsg("Une erreur s'est produite.");
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -224,11 +238,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
 
           <button
             type="submit"
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-[6px] bg-[#007aff] hover:bg-[#0069d9] active:bg-[#0051a8] text-white font-medium text-[13px] shadow-2xs transition-colors"
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-[6px] bg-[#007aff] hover:bg-[#0069d9] active:bg-[#0051a8] text-white font-medium text-[13px] shadow-2xs transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {isRegisterMode ? <UserCheck className="h-3.5 w-3.5" /> : <LogIn className="h-3.5 w-3.5" />}
-            <span>{isRegisterMode ? 'Créer le compte' : 'Connexion'}</span>
-            <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            {isLoading ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                <span>{isRegisterMode ? 'Création en cours...' : 'Connexion en cours...'}</span>
+              </>
+            ) : (
+              <>
+                {isRegisterMode ? <UserCheck className="h-3.5 w-3.5" /> : <LogIn className="h-3.5 w-3.5" />}
+                <span>{isRegisterMode ? 'Créer le compte' : 'Connexion'}</span>
+                <ArrowRight className="h-3.5 w-3.5 ml-1" />
+              </>
+            )}
           </button>
         </form>
       </div>

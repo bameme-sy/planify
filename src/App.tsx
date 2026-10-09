@@ -88,48 +88,77 @@ export function App() {
     return getUserSlots(currentUser.id);
   });
 
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Robust function to sync slots & templates with PostgreSQL cloud database
+  const syncWithCloud = useCallback(async (notify = false) => {
+    const targetId = viewingFriend ? viewingFriend.id : currentUser?.id;
+    if (!targetId) return;
+
+    setIsSyncing(true);
+    try {
+      // 1. Fetch remote slots
+      const remoteSlots = await apiClient.getSlots(targetId);
+      if (Array.isArray(remoteSlots)) {
+        const localSlots = getUserSlots(targetId);
+        if (remoteSlots.length > 0) {
+          setSlots(remoteSlots);
+          if (!viewingFriend) {
+            saveUserSlots(targetId, remoteSlots);
+          }
+        } else if (localSlots.length > 0 && !viewingFriend) {
+          // Cloud empty, upload local slots
+          await apiClient.saveAllSlots(localSlots, targetId);
+        } else {
+          setSlots([]);
+        }
+      }
+
+      // 2. Fetch remote templates (if own account)
+      if (currentUser && !viewingFriend) {
+        const remoteTemplates = await apiClient.getTemplates(currentUser.id);
+        if (Array.isArray(remoteTemplates) && remoteTemplates.length > 0) {
+          setTemplates(remoteTemplates);
+          saveTemplates(remoteTemplates, currentUser.id);
+        }
+      }
+
+      if (notify) {
+        addToast('success', 'Planning synchronisé avec la base SQL !');
+      }
+    } catch {
+      if (notify) {
+        addToast('error', 'Erreur de synchronisation avec le serveur');
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [currentUser, viewingFriend]);
+
   // Reload slots when active user changes (self or friend)
   useEffect(() => {
-    let isMounted = true;
     if (activeUserId) {
       const localSlots = getUserSlots(activeUserId);
       setSlots(localSlots);
-      apiClient.getSlots(activeUserId).then((remote) => {
-        if (!isMounted) return;
-        if (Array.isArray(remote)) {
-          if (remote.length > 0) {
-            setSlots(remote);
-            if (!viewingFriend) {
-              saveUserSlots(activeUserId, remote);
-            }
-          } else if (localSlots.length > 0 && !viewingFriend) {
-            // Cloud is empty but local has data: auto-sync local data to cloud database
-            apiClient.saveAllSlots(localSlots, activeUserId).catch(() => {});
-          }
-        }
-      }).catch(() => {});
+      syncWithCloud(false);
     } else {
       setSlots([]);
     }
-    return () => { isMounted = false; };
-  }, [activeUserId, viewingFriend]);
+  }, [activeUserId, syncWithCloud]);
 
   const [templates, setTemplates] = useState<WeekTemplate[]>(() => loadTemplates(currentUser?.id));
 
   // Reload templates when currentUser changes
   useEffect(() => {
-    let isMounted = true;
     if (currentUser) {
       const localTpls = loadTemplates(currentUser.id);
       setTemplates(localTpls);
       apiClient.getTemplates(currentUser.id).then((remote) => {
-        if (!isMounted) return;
         if (Array.isArray(remote)) {
           if (remote.length > 0) {
             setTemplates(remote);
             saveTemplates(remote, currentUser.id);
           } else if (localTpls.length > 0) {
-            // Auto-sync local templates to cloud database
             for (const tpl of localTpls) {
               apiClient.createTemplate(tpl, currentUser.id).catch(() => {});
             }
@@ -139,8 +168,33 @@ export function App() {
     } else {
       setTemplates([]);
     }
-    return () => { isMounted = false; };
   }, [currentUser?.id]);
+
+  // Real-time multi-device sync: on tab focus, visibility change, and every 6 seconds
+  useEffect(() => {
+    if (!currentUser || viewingFriend) return;
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        syncWithCloud(false);
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncWithCloud(false);
+      }
+    }, 6000);
+
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      clearInterval(intervalId);
+    };
+  }, [currentUser?.id, viewingFriend, syncWithCloud]);
 
   const [config, setConfig] = useState<PlanningConfig>(() => loadConfig());
 
@@ -230,11 +284,26 @@ export function App() {
   }, [currentUser, isFriendsModalOpen]);
 
   // Auth Handlers
-  const handleAuthSuccess = (user: User) => {
+  const handleAuthSuccess = async (user: User) => {
     setCurrentUser(user);
     setViewingFriend(null);
-    setSlots(getUserSlots(user.id));
+    const local = getUserSlots(user.id);
+    setSlots(local);
     addToast('success', `Bienvenue, ${user.name} !`);
+
+    try {
+      const remote = await apiClient.getSlots(user.id);
+      if (Array.isArray(remote)) {
+        if (remote.length > 0) {
+          setSlots(remote);
+          saveUserSlots(user.id, remote);
+        } else if (local.length > 0) {
+          await apiClient.saveAllSlots(local, user.id);
+        }
+      }
+    } catch {
+      // Background catch
+    }
   };
 
   const handleLogout = () => {
@@ -630,6 +699,8 @@ export function App() {
         totalSlotsThisWeek={currentViewSlots.length}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        onSync={() => syncWithCloud(true)}
+        isSyncing={isSyncing}
       />
 
       {/* Friend Schedule Consultation Banner */}

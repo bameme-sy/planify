@@ -26,7 +26,7 @@ export const apiClient = {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(1500) });
+      const res = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(6000) });
       if (!res.ok) {
         availabilityCache = false;
         lastAvailabilityCheck = now;

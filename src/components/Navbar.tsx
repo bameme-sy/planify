@@ -15,7 +15,8 @@ import {
   X, 
   Users,
   LogOut,
-  MoreHorizontal
+  MoreHorizontal,
+  RefreshCw
 } from 'lucide-react';
 import { formatWeekRange } from '../utils/dateUtils';
 import { PlanningConfig, CalendarViewMode, User } from '../types';
@@ -45,6 +46,8 @@ interface NavbarProps {
   totalSlotsThisWeek: number;
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  onSync?: () => void;
+  isSyncing?: boolean;
 }
 
 const VIEW_MODES: { id: CalendarViewMode; label: string; mobileLabel: string }[] = [
@@ -83,6 +86,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   totalSlotsThisWeek,
   searchQuery,
   onSearchChange,
+  onSync,
+  isSyncing = false,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobileSearchActive, setIsMobileSearchActive] = useState(false);
@@ -241,6 +246,23 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
+            {/* Cloud SQL Sync Button */}
+            {onSync && (
+              <button
+                onClick={onSync}
+                disabled={isSyncing}
+                title={isSyncing ? "Synchronisation en cours avec la base SQL..." : "Synchroniser avec la base de données SQL"}
+                className={`flex items-center gap-1 px-2 py-1 rounded-[6px] border border-[#d1d1d6] dark:border-[#48484a] bg-white dark:bg-[#323234] shadow-2xs transition-all ${
+                  isSyncing 
+                    ? 'text-[#007aff] border-[#007aff]/50 bg-[#007aff]/5' 
+                    : 'text-[#48484a] dark:text-[#aeaeb2] hover:text-[#007aff] dark:hover:text-white'
+                }`}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin text-[#007aff]' : ''}`} />
+                <span className="hidden xl:inline text-[11px] font-medium">Sync SQL</span>
+              </button>
+            )}
+
             {/* Desktop Toolbar Secondary Actions */}
             <div className="hidden md:flex items-center gap-0.5">
               {!isViewingFriend && (
@@ -349,6 +371,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                           </div>
                         </div>
                       </div>
+                    )}
+
+                    {onSync && (
+                      <button
+                        onClick={() => {
+                          setIsMobileMenuOpen(false);
+                          onSync();
+                        }}
+                        className="w-full px-3 py-2 text-left text-[12px] text-[#1d1d1f] dark:text-[#f5f5f7] hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2"
+                      >
+                        <RefreshCw className={`h-4 w-4 text-[#007aff] ${isSyncing ? 'animate-spin' : ''}`} />
+                        <span>Synchroniser SQL</span>
+                      </button>
                     )}
 
                     {!isViewingFriend && (
