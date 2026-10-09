@@ -73,6 +73,22 @@ export function setCurrentUserId(userId: string | null): void {
   }
 }
 
+export function saveOrUpdateLocalUser(user: User): void {
+  try {
+    const users = getAllUsers();
+    const index = users.findIndex((u) => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
+    if (index >= 0) {
+      users[index] = { ...users[index], ...user };
+    } else {
+      users.push(user);
+    }
+    saveUsers(users);
+    setCurrentUserId(user.id);
+  } catch (e) {
+    console.error('Error in saveOrUpdateLocalUser', e);
+  }
+}
+
 export function registerUser(name: string, username: string, email: string, password?: string): User {
   const users = getAllUsers();
   const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');

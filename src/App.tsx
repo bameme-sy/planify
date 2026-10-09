@@ -25,7 +25,8 @@ import {
   getUserSlots,
   saveUserSlots,
   getFriendsForUser,
-  getPendingRequestsReceived
+  getPendingRequestsReceived,
+  saveOrUpdateLocalUser
 } from './utils/authStorage';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
@@ -41,9 +42,17 @@ import { ToastContainer, ToastMessage } from './components/Toast';
 import { apiClient } from './api/client';
 
 export function App() {
-  // Initialize demo accounts on first run
+  // Initialize demo accounts on first run and auto-reconnect cloud session
   useEffect(() => {
     initAuthStorage();
+    if (apiClient.getToken()) {
+      apiClient.getMe().then((user) => {
+        if (user) {
+          saveOrUpdateLocalUser(user);
+          setCurrentUser(user);
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   // Theme: Black Theme / Dark Mode State

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { registerUser, loginUser } from '../utils/authStorage';
+import { registerUser, loginUser, saveOrUpdateLocalUser } from '../utils/authStorage';
 import { UserCheck, LogIn, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 import { apiClient } from '../api/client';
@@ -36,7 +36,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
         if (isBackendUp) {
           try {
             const { user } = await apiClient.register(name, username, email, password);
-            registerUser(name, username, email, password);
+            saveOrUpdateLocalUser(user);
             onAuthSuccess(user);
             return;
           } catch (apiErr: any) {
@@ -60,7 +60,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onAuthSuccess }) =
         if (isBackendUp) {
           try {
             const { user } = await apiClient.login(email, password);
-            loginUser(email, password);
+            saveOrUpdateLocalUser(user);
             onAuthSuccess(user);
             return;
           } catch (apiErr: any) {
